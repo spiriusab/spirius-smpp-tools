@@ -1,0 +1,23 @@
+[project]
+name = "spirius-smpp-tools"
+version = "0.1.0"
+description = "Spirius SMPP Tools"
+authors = [
+    {name = "János Tóth-Égetö",email = "janos.toth-egeto@spirius.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "bitstring (>=4.3.0,<5.0.0)",
+    "smpplib (>=2.2.0,<3.0.0)",
+    "questionary (>=2.0.0,<3.0.0)",
+    "python-dotenv (>=1.0.0,<2.0.0)",
+    "colorama (>=0.4.0,<1.0.0)"
+]
+
+[tool.poetry]
+package-mode = false
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
