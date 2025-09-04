@@ -24,7 +24,7 @@ sys.path.append('..')
 from common.smpp_common import (
     load_env_file, get_smsc_servers, get_connection_config, get_receiver_params,
     test_ssl_connection, validate_required_params, print_connection_info,
-    print_using_params, create_test_message
+    print_using_params, create_test_message, decode_sms_message
 )
 
 # Load receiver-specific environment variables
@@ -74,54 +74,39 @@ def message_sent_handler(pdu):
         }
 
 
-def smart_sms_decode(raw_bytes, debug_mode=False):
+def decode_sms_message_with_debug(raw_bytes, data_coding, debug_mode=False):
     """
-    Automatically detect and decode SMS message using GSM-7 or UTF-8.
-    The SMSC uses GSM-7 if all characters are in the GSM character set, otherwise UTF-8.
+    Wrapper for decode_sms_message with debug output.
     """
-    if not isinstance(raw_bytes, bytes):
-        return str(raw_bytes)
-    
-    # Try GSM-7 decoding first by mapping bytes to GSM character table
-    try:
-        gsm_table = smpplib.gsm.GSM_CHARACTER_TABLE
-        gsm_decoded_chars = []
+    if debug_mode:
+        print(f"{Fore.YELLOW}🔍 DEBUG: Decoding with data_coding=0x{data_coding:02X}{Style.RESET_ALL}")
         
-        for byte_val in raw_bytes:
-            if byte_val < len(gsm_table):
-                gsm_decoded_chars.append(gsm_table[byte_val])
-            else:
-                # If any byte is outside GSM table, this is likely not GSM-7
-                raise ValueError("Byte outside GSM-7 range")
+        # Map data_coding to description for debug output
+        coding_descriptions = {
+            0x00: "GSM 7-bit default alphabet",
+            0x01: "ASCII",
+            0x02: "8-bit binary (UTF-8)",
+            0x03: "Latin-1 (ISO-8859-1)",
+            0x08: "UCS2 (UTF-16BE)"
+        }
         
-        gsm_result = ''.join(gsm_decoded_chars)
-        
-        # Check if the GSM-decoded result makes sense (no control characters except common ones)
-        # Allow common control chars: \n (10), \r (13), but not others like \x11
-        control_chars = set(chr(i) for i in range(32) if i not in [10, 13])  # Exclude \n and \r
-        
-        if not any(char in control_chars for char in gsm_result):
-            if debug_mode:
-                print(f"{Fore.YELLOW}🔍 DEBUG: Successfully decoded as GSM-7{Style.RESET_ALL}")
-            return gsm_result
+        if data_coding in coding_descriptions:
+            print(f"{Fore.YELLOW}🔍 DEBUG: Using {coding_descriptions[data_coding]}{Style.RESET_ALL}")
+        elif data_coding & 0xF0 == 0xF0:
+            print(f"{Fore.YELLOW}🔍 DEBUG: GSM 7-bit with message class{Style.RESET_ALL}")
         else:
-            # Contains unexpected control characters, try UTF-8
-            if debug_mode:
-                print(f"{Fore.YELLOW}🔍 DEBUG: GSM-7 contains control chars, trying UTF-8{Style.RESET_ALL}")
-            raise ValueError("GSM-7 result contains unexpected control characters")
-            
-    except (ValueError, IndexError):
-        # GSM-7 failed, try UTF-8
-        try:
-            utf8_result = raw_bytes.decode('utf-8')
-            if debug_mode:
-                print(f"{Fore.YELLOW}🔍 DEBUG: Decoded as UTF-8{Style.RESET_ALL}")
-            return utf8_result
-        except UnicodeDecodeError:
-            # Final fallback - force UTF-8 with error handling
-            if debug_mode:
-                print(f"{Fore.YELLOW}🔍 DEBUG: UTF-8 failed, using error-tolerant UTF-8{Style.RESET_ALL}")
-            return raw_bytes.decode('utf-8', errors='ignore')
+            print(f"{Fore.YELLOW}🔍 DEBUG: Unknown data_coding, falling back to GSM 7-bit{Style.RESET_ALL}")
+    
+    try:
+        result = decode_sms_message(raw_bytes, data_coding)
+        if debug_mode:
+            print(f"{Fore.GREEN}🔍 DEBUG: Successfully decoded message{Style.RESET_ALL}")
+        return result
+    except Exception as e:
+        if debug_mode:
+            print(f"{Fore.RED}🔍 DEBUG: Decoding failed ({e}), using fallback{Style.RESET_ALL}")
+        # Use the common function's fallback handling
+        return decode_sms_message(raw_bytes, data_coding)
 
 
 def create_mo_message_handler(mo_received_event, debug_mode=False):
@@ -148,16 +133,18 @@ def create_mo_message_handler(mo_received_event, debug_mode=False):
             source_addr = getattr(pdu, 'source_addr', 'Unknown')
             destination_addr = getattr(pdu, 'destination_addr', 'Unknown')
             short_message = getattr(pdu, 'short_message', b'')
-            if debug_mode:
-                print(f"{Fore.YELLOW}🔍 DEBUG: Extracted - source={source_addr}, dest={destination_addr}, msg_len={len(short_message) if short_message else 0}{Style.RESET_ALL}")
+            data_coding = getattr(pdu, 'data_coding', 0x00)  # Default to GSM 7-bit if not present
             
-            # Decode message content
+            if debug_mode:
+                print(f"{Fore.YELLOW}🔍 DEBUG: Extracted - source={source_addr}, dest={destination_addr}, msg_len={len(short_message) if short_message else 0}, data_coding=0x{data_coding:02X}{Style.RESET_ALL}")
+            
+            # Decode message content using proper data_coding field
             if debug_mode:
                 print(f"{Fore.YELLOW}🔍 DEBUG: Decoding message, type={type(short_message)}{Style.RESET_ALL}")
                 print(f"{Fore.YELLOW}🔍 DEBUG: Raw bytes (first 50): {short_message[:50]}{Style.RESET_ALL}")
             
-            # Use smart decoding to automatically detect GSM-7 vs UTF-8
-            message_text = smart_sms_decode(short_message, debug_mode)
+            # Use proper SMPP data_coding field for decoding
+            message_text = decode_sms_message_with_debug(short_message, data_coding, debug_mode)
             
             # Decode addresses properly
             source_str = source_addr.decode('utf-8') if isinstance(source_addr, bytes) else str(source_addr)
