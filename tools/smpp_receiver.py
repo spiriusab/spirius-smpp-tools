@@ -12,7 +12,6 @@ import sys
 import time
 from contextlib import redirect_stderr
 from threading import Thread, Event
-import re
 
 import questionary
 import smpplib.client
