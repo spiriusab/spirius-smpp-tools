@@ -7,9 +7,6 @@ and wait for delivery report using modern smpplib.
 """
 import argparse
 import io
-import os
-import socket
-import ssl
 import sys
 import time
 from contextlib import redirect_stderr
@@ -19,33 +16,23 @@ import questionary
 import smpplib.client
 import smpplib.consts
 import smpplib.gsm
-from dotenv import load_dotenv
-from colorama import Fore, Style, init
+from colorama import Fore, Style
 
-# Initialize colorama for cross-platform colored output
-init(autoreset=True)
+# Import common SMPP functionality
+sys.path.append('..')
+from common.smpp_common import (
+    load_env_file, get_smsc_servers, get_connection_config, get_smpp_params,
+    test_ssl_connection, validate_required_params, print_connection_info,
+    print_using_params, create_test_message
+)
 
+# Load sender-specific environment variables
+load_env_file('.env.sender')
 
-# Load environment variables
-load_dotenv()
-
-# Configuration constants loaded from environment
-SMSC_SERVERS = {
-    'SMSC_1': os.getenv('SMSC_1', 'localhost'),
-    'SMSC_2': os.getenv('SMSC_2', 'localhost')
-}
-
-# Default values from environment or fallbacks
-SMPP_PLAIN_PORT = int(os.getenv('SMPP_PLAIN_PORT'))
-SMPP_SSL_PORT = int(os.getenv('SMPP_SSL_PORT'))
-SOURCE_TON = os.getenv('SOURCE_TON')
-SOURCE_NPI = os.getenv('SOURCE_NPI')
-SOURCE_ADDRESS = os.getenv('SOURCE_ADDRESS')
-DEST_TON = os.getenv('DEST_TON')
-DEST_NPI = os.getenv('DEST_NPI')
-SMPP_USERNAME = os.getenv('SMPP_USERNAME')
-SMPP_PASSWORD = os.getenv('SMPP_PASSWORD')
-DEST_ADDRESS = os.getenv('DEST_ADDRESS')
+# Configuration from environment
+SMSC_SERVERS = get_smsc_servers()
+CONNECTION_CONFIG = get_connection_config()
+SMPP_PARAMS = get_smpp_params()
 
 
 def parse_arguments():
@@ -112,77 +99,44 @@ def main():
         sys.exit(1)
     
     host = SMSC_SERVERS[server_choice]
-    port = SMPP_SSL_PORT if use_ssl else SMPP_PLAIN_PORT
+    port = CONNECTION_CONFIG['ssl_port'] if use_ssl else CONNECTION_CONFIG['plain_port']
     message_count = 1
-    source_ton = int(SOURCE_TON, 0)
-    source_npi = int(SOURCE_NPI, 0)
-    source_addr = SOURCE_ADDRESS
-    dest_ton = int(DEST_TON, 0)
-    dest_npi = int(DEST_NPI, 0)
+    source_ton = SMPP_PARAMS['source_ton']
+    source_npi = SMPP_PARAMS['source_npi']
+    source_addr = SMPP_PARAMS['source_address']
+    dest_ton = SMPP_PARAMS['dest_ton']
+    dest_npi = SMPP_PARAMS['dest_npi']
 
     # Get user inputs based on interactive mode
     if interactive:
-        username = input(f"Enter username [{SMPP_USERNAME}]: ").strip() or SMPP_USERNAME
+        username = input(f"Enter username [{SMPP_PARAMS['username']}]: ").strip() or SMPP_PARAMS['username']
         
         password = input("Enter password: ").strip()
         if not password:
             print("Password is required")
             sys.exit(1)
 
-        dest_addr = input(f"Enter destination address [{DEST_ADDRESS}]: ").strip()
+        dest_addr = input(f"Enter destination address [{SMPP_PARAMS['dest_address']}]: ").strip()
         if not dest_addr:
-            dest_addr = DEST_ADDRESS
+            dest_addr = SMPP_PARAMS['dest_address']
     else:
         # Use values from environment
-        username = SMPP_USERNAME
-        password = SMPP_PASSWORD
-        dest_addr = DEST_ADDRESS
+        username = SMPP_PARAMS['username']
+        password = SMPP_PARAMS['password']
+        dest_addr = SMPP_PARAMS['dest_address']
         
-        if not username:
-            print(f"{Fore.RED}❌ Error: SMPP_USERNAME not set in environment{Style.RESET_ALL}")
-            sys.exit(1)
-        if not password:
-            print(f"{Fore.RED}❌ Error: SMPP_PASSWORD not set in environment{Style.RESET_ALL}")
-            sys.exit(1)
-        if not dest_addr:
-            print(f"{Fore.RED}❌ Error: DEST_ADDRESS not set in environment{Style.RESET_ALL}")
-            sys.exit(1)
-            
-        print(f"{Fore.CYAN}👤 Using username: {username}{Style.RESET_ALL}")
-        print(f"{Fore.CYAN}📱 Using destination: {dest_addr}{Style.RESET_ALL}")
+        validate_required_params(SMPP_PARAMS, ['username', 'password', 'dest_address'])
+        print_using_params(username, dest_addr)
 
-    message = f"Testing SMPP\nServer: {server_choice}\nAccount: {username}\nSSL/TLS: {'YES' if use_ssl else 'NO'}\nTime: {time.strftime('%Y-%m-%d %H:%M:%S')}"
+    message = create_test_message(server_choice, username, use_ssl)
 
     # Create client
     try:
-        print(f"{Fore.WHITE}🔌 Connecting to {server_choice} ({host}:{port}) with {'SSL/TLS' if use_ssl else 'plain TCP'}{Style.RESET_ALL}")
+        print_connection_info(server_choice, host, port, use_ssl)
         
         if use_ssl:
-            # Test SSL/TLS connection first
-            print(f"{Fore.WHITE}🔐 Testing SSL/TLS connection...{Style.RESET_ALL}")
-            try:
-                # Create SSL context for SSL/TLS connection
-                ssl_context = ssl.create_default_context()
-                ssl_context.check_hostname = False
-                ssl_context.verify_mode = ssl.CERT_NONE
-                
-                # Test SSL/TLS handshake
-                test_sock = socket.create_connection((host, port), timeout=10)
-                ssl_test_sock = ssl_context.wrap_socket(test_sock, server_hostname=host)
-                ssl_test_sock.close()
-                print(f"{Fore.GREEN}✅ SSL/TLS connection successful{Style.RESET_ALL}")
-                
-                # Create SMPP client using SSL context (client.connect() will wrap the socket)
-                client = smpplib.client.Client(host, port, ssl_context=ssl_context)
-                
-            except ssl.SSLError as e:
-                print(f"{Fore.RED}❌ SSL/TLS connection failed: {e}{Style.RESET_ALL}")
-                print(f"{Fore.YELLOW}💡 Use plain TCP connection (without -s/--ssl flag) if SSL/TLS is not supported.{Style.RESET_ALL}")
-                sys.exit(1)
-                
-            except Exception as e:
-                print(f"{Fore.RED}❌ Connection test failed: {e}{Style.RESET_ALL}")
-                raise
+            ssl_context = test_ssl_connection(host, port)
+            client = smpplib.client.Client(host, port, ssl_context=ssl_context)
         else:
             client = smpplib.client.Client(host, port)
 
