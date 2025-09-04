@@ -94,9 +94,8 @@ A command-line tool for encoding text messages to hexadecimal format using vario
 ### Usage
 
 ```bash
-./sms_encoder.py "Your message text"
-./sms_encoder.py "Your message" --encoding gsm
-./sms_encoder.py "Your message" --all
+./sms_encoder.py "Hello World"
+./sms_encoder.py "Hello World" --encoding gsm
 ```
 
 ## sms_decoder
