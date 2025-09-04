@@ -7,6 +7,7 @@ This project is provided by Spirius to showcase the SMPP protocol integration as
 ## Tools included
 
 - smpp_sender: A command-line tool for sending SMS messages using the SMPP protocol.
+- smpp_receiver: A command-line tool for receiving SMS messages using the SMPP protocol.
 
 ## Prerequisites
 
