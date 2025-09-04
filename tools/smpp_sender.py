@@ -43,6 +43,7 @@ def parse_arguments():
     parser.add_argument('-s', '--ssl', action='store_true', help='Use SSL/TLS connection')
     parser.add_argument('-i', '--interactive', action='store_true', help='Interactive mode - prompt for username, password, and destination')
     parser.add_argument('-d', '--debug', action='store_true', help='Enable debug logging')
+    parser.add_argument('-t', '--text', help='Custom message text (default: auto-generated)')
     return parser.parse_args()
 
 
@@ -92,6 +93,7 @@ def main():
     debug_mode = args.debug
     use_ssl = args.ssl
     interactive = args.interactive
+    custom_text = args.text
 
     print(f"{Fore.CYAN}{Style.BRIGHT}SMPP Sender{Style.RESET_ALL}")
     print("Attempts to send an SMS over SMPP")
@@ -144,7 +146,7 @@ def main():
         validate_required_params(SMPP_PARAMS, ['username', 'password', 'dest_address'])
         print_using_params(username, dest_addr)
 
-    message = create_test_message(server_choice, username, use_ssl)
+    message = custom_text or create_test_message(server_choice, username, use_ssl)
 
     # Create client
     try:

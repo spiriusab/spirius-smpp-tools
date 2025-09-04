@@ -52,7 +52,6 @@ def parse_arguments():
     parser.add_argument('-s', '--ssl', action='store_true', help='Use SSL/TLS connection')
     parser.add_argument('-i', '--interactive', action='store_true', help='Interactive mode - prompt for username, password, and destination')
     parser.add_argument('-m', '--mode', choices=['send-receive', 'receive-only'], default='send-receive', help='Operation mode (default: send-receive)')
-    parser.add_argument('-t', '--text', help='Custom message text (default: auto-generated)')
     parser.add_argument('-d', '--debug', action='store_true', help='Enable debug logging')
     return parser.parse_args()
 
@@ -300,11 +299,11 @@ def has_received_all_confirmations():
     return (has_mo_message and all_dlrs_received) or has_failed_delivery
 
 
-def send_test_message(client, custom_text, server_choice, username, use_ssl, smpp_params):
+def send_test_message(client, server_choice, username, use_ssl, smpp_params):
     """Send a test message that will be received as MO message."""
     print(f"{Fore.CYAN}📤 Sending test message...{Style.RESET_ALL}")
     
-    message = custom_text or create_test_message(server_choice, username, use_ssl)
+    message = create_test_message(server_choice, username, use_ssl)
     
     pdu = client.send_message(
         source_addr_ton=smpp_params['source_ton'],
@@ -327,7 +326,6 @@ def main():
     use_ssl = args.ssl
     interactive = args.interactive
     mode = args.mode
-    custom_text = args.text
 
     print(f"{Fore.CYAN}{Style.BRIGHT}SMPP Receiver{Style.RESET_ALL}")
     print(f"Mode: {mode.upper()}")
@@ -429,7 +427,7 @@ def main():
             print(f"{Fore.YELLOW}🧪 Starting end-to-end MO SMS test{Style.RESET_ALL}")
             
             # Send test message
-            send_test_message(client, custom_text, server_choice, username, use_ssl, SMPP_PARAMS)
+            send_test_message(client, server_choice, username, use_ssl, SMPP_PARAMS)
             
             # Wait for both MO message and delivery report
             print(f"{Fore.WHITE}👂 Waiting for MO message and delivery report for 30 seconds...{Style.RESET_ALL}")

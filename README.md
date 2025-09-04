@@ -50,6 +50,8 @@ python tools/smpp_sender.py [OPTIONS]
 
 - `-s, --ssl`: Use SSL/TLS connection (default: plain TCP)
 - `-i, --interactive`: Interactive mode - prompt for username, password, and destination
+- `-t, --text`: Custom message text (default: auto-generated)
+- `-d, --debug`: Enable debug logging with detailed sequence information
 - `-h, --help`: Show help message
 
 ### Configuration
@@ -70,6 +72,16 @@ python tools/smpp_sender.py        # plain TCP
 python tools/smpp_sender.py -s     # with SSL/TLS
 ```
 
+**Custom message text:**
+```bash
+python tools/smpp_sender.py -t "Custom SMS message"
+```
+
+**Debug mode (shows sequence numbers and detailed info):**
+```bash
+python tools/smpp_sender.py -d
+```
+
 ## smpp_receiver
 
 A command-line tool for receiving SMS messages using the SMPP protocol. Supports both plain TCP and SSL/TLS connections with interactive and non-interactive modes. Has a send-receive mode to test end-to-end MO SMS functionality.
@@ -87,7 +99,6 @@ python tools/smpp_receiver.py [OPTIONS]
 - `-m, --mode`: Operation mode (default: send-receive)
   - `send-receive`: Send a test message and wait for MO messages and delivery reports
   - `receive-only`: Only listen for incoming MO messages (no test message sent)
-- `-t, --text`: Custom message text for test message (default: auto-generated)
 - `-d, --debug`: Enable debug logging with detailed sequence information
 - `-h, --help`: Show help message
 
@@ -108,10 +119,6 @@ python tools/smpp_receiver.py                  # Same as above (default mode)
 python tools/smpp_receiver.py -m receive-only  # Only listen, no test message sent
 ```
 
-**Custom test message:**
-```bash
-python tools/smpp_receiver.py -t "Custom test message"
-```
 
 **Debug mode (shows sequence numbers and detailed info):**
 ```bash
