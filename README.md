@@ -13,7 +13,7 @@ This project is provided by Spirius to showcase the SMPP protocol integration as
 
 - Python 3.12 or higher
 - Poetry 1.8.0 or higher
-- Credentials from Spirus, contact your Spirius representative for access
+- Credentials from Spirius, contact your Spirius account manager for access
 
 ## Installation
 
@@ -43,7 +43,7 @@ A command-line tool for sending SMS messages using the SMPP protocol. Supports b
 ### Usage
 
 ```bash
-python tools/smpp_sender.py [OPTIONS]
+./smpp_sender.py [OPTIONS]
 ```
 
 ### Options
@@ -51,7 +51,7 @@ python tools/smpp_sender.py [OPTIONS]
 - `-s, --ssl`: Use SSL/TLS connection (default: plain TCP)
 - `-i, --interactive`: Interactive mode - prompt for username, password, and destination
 - `-t, --text`: Custom message text (default: auto-generated)
-- `-d, --debug`: Enable debug logging with detailed sequence information
+- `-d, --debug`: Enable debug logging with detailed information
 - `-h, --help`: Show help message
 
 ### Configuration
@@ -62,24 +62,19 @@ The tool uses environment variables for configuration. Copy `.env.example` to `.
 
 **Interactive mode (prompts for credentials):**
 ```bash
-python tools/smpp_sender.py -i     # plain TCP
-python tools/smpp_sender.py -i -s  # with SSL/TLS
+./smpp_sender.py -i     # plain TCP
+./smpp_sender.py -i -s  # with SSL/TLS
 ```
 
 **Non-interactive mode (uses .env values):**
 ```bash
-python tools/smpp_sender.py        # plain TCP
-python tools/smpp_sender.py -s     # with SSL/TLS
+./smpp_sender.py        # plain TCP
+./smpp_sender.py -s     # with SSL/TLS
 ```
 
 **Custom message text:**
 ```bash
-python tools/smpp_sender.py -t "Custom SMS message"
-```
-
-**Debug mode (shows sequence numbers and detailed info):**
-```bash
-python tools/smpp_sender.py -d
+./smpp_sender.py -t "Custom SMS message"
 ```
 
 ## smpp_receiver
@@ -89,7 +84,7 @@ A command-line tool for receiving SMS messages using the SMPP protocol. Supports
 ### Usage
 
 ```bash
-python tools/smpp_receiver.py [OPTIONS]
+./smpp_receiver.py [OPTIONS]
 ```
 
 ### Options
@@ -99,7 +94,7 @@ python tools/smpp_receiver.py [OPTIONS]
 - `-m, --mode`: Operation mode (default: send-receive)
   - `send-receive`: Send a test message and wait for MO messages and delivery reports
   - `receive-only`: Only listen for incoming MO messages (no test message sent)
-- `-d, --debug`: Enable debug logging with detailed sequence information
+- `-d, --debug`: Enable debug logging with detailed information
 - `-h, --help`: Show help message
 
 ### Configuration
@@ -110,17 +105,17 @@ The tool uses environment variables for configuration. Copy `.env.example` to `.
 
 **Send-receive mode (default - tests end-to-end MO functionality):**
 ```bash
-python tools/smpp_receiver.py -m send-receive  # Send test message and wait for MO/DLR
-python tools/smpp_receiver.py                  # Same as above (default mode)
+./smpp_receiver.py -m send-receive  # Send test message and wait for MO/DLR
+./smpp_receiver.py                  # Same as above (default mode)
 ```
 
 **Receive-only mode (listen for real MO messages):**
 ```bash
-python tools/smpp_receiver.py -m receive-only  # Only listen, no test message sent
+./smpp_receiver.py -m receive-only  # Only listen, no test message sent
 ```
 
 
 **Debug mode (shows sequence numbers and detailed info):**
 ```bash
-python tools/smpp_receiver.py -d
+./smpp_receiver.py -d
 ```
