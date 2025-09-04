@@ -99,6 +99,25 @@ def get_smpp_params():
     }
 
 
+def get_receiver_params():
+    """Get SMPP parameters for receiver (MO SMS) from environment."""
+    source_ton = os.getenv('SOURCE_TON')
+    source_npi = os.getenv('SOURCE_NPI')
+    dest_ton = os.getenv('DEST_TON')
+    dest_npi = os.getenv('DEST_NPI')
+    
+    return {
+        'source_ton': int(source_ton, 0) if source_ton else None,
+        'source_npi': int(source_npi, 0) if source_npi else None,
+        'originating_phone_number': os.getenv('ORIGINATING_PHONE_NUMBER'),  # MO: phone sending SMS
+        'dest_ton': int(dest_ton, 0) if dest_ton else None,
+        'dest_npi': int(dest_npi, 0) if dest_npi else None,
+        'username': os.getenv('SMPP_USERNAME'),
+        'password': os.getenv('SMPP_PASSWORD'),
+        'receiving_phone_number': os.getenv('RECEIVING_PHONE_NUMBER')  # MO: virtual number receiving SMS
+    }
+
+
 def test_ssl_connection(host, port):
     """Test SSL/TLS connection to SMSC."""
     try:

@@ -8,7 +8,6 @@ for end-to-end MO SMS testing using bind_transceiver mode.
 
 import argparse
 import io
-import os
 import sys
 import time
 from contextlib import redirect_stderr
@@ -24,7 +23,7 @@ from colorama import Fore, Style
 # Import common SMPP functionality
 sys.path.append('..')
 from common.smpp_common import (
-    load_env_file, get_smsc_servers, get_connection_config, get_smpp_params,
+    load_env_file, get_smsc_servers, get_connection_config, get_receiver_params,
     test_ssl_connection, validate_required_params, print_connection_info,
     print_using_params, create_test_message
 )
@@ -35,30 +34,39 @@ load_env_file('.env.receiver')
 # Configuration from environment
 SMSC_SERVERS = get_smsc_servers()
 CONNECTION_CONFIG = get_connection_config()
-SMPP_PARAMS = get_smpp_params()
+SMPP_PARAMS = get_receiver_params()
 
 # MO-specific configuration
-RECEIVER_TIMEOUT = int(os.getenv('RECEIVER_TIMEOUT', '30'))
+RECEIVER_TIMEOUT = 30  # Timeout in seconds
 
 # Message correlation tracking
 sent_messages = {}
 received_messages = []
+delivery_reports_received = []
+
+# Global debug mode flag
+debug_mode = False
 
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='SMPP Receiver - Receive MO SMS and test end-to-end MO functionality')
     parser.add_argument('-s', '--ssl', action='store_true', help='Use SSL/TLS connection')
     parser.add_argument('-i', '--interactive', action='store_true', help='Interactive mode - prompt for username, password, and destination')
-    parser.add_argument('-m', '--mode', choices=['receive', 'send', 'test'], default='test', help='Operation mode (default: test)')
-    parser.add_argument('-c', '--count', type=int, default=1, help='Number of test messages to send (default: 1)')
-    parser.add_argument('-w', '--wait', type=int, default=30, help='Wait time for receiving messages in seconds (default: 30)')
+    parser.add_argument('-m', '--mode', choices=['send-receive', 'receive-only'], default='send-receive', help='Operation mode (default: send-receive)')
     parser.add_argument('-t', '--text', help='Custom message text (default: auto-generated)')
+    parser.add_argument('-d', '--debug', action='store_true', help='Enable debug logging')
     return parser.parse_args()
 
 
 def message_sent_handler(pdu):
     """Handle sent message confirmations."""
-    print(f"{Fore.GREEN}📤 Message sent - Sequence: {pdu.sequence}, Message ID: {pdu.message_id}{Style.RESET_ALL}")
+    # Convert message ID to string for display
+    message_id_str = pdu.message_id.decode('utf-8', errors='ignore') if isinstance(pdu.message_id, bytes) else str(pdu.message_id)
+    
+    if debug_mode:
+        print(f"{Fore.GREEN}📤 Message sent - Sequence: {pdu.sequence}, Message ID: {message_id_str}{Style.RESET_ALL}")
+    else:
+        print(f"{Fore.GREEN}📤 Message sent - Message ID: {message_id_str}{Style.RESET_ALL}")
     
     # Store sent message for correlation
     if hasattr(pdu, 'sequence'):
@@ -68,48 +76,156 @@ def message_sent_handler(pdu):
         }
 
 
-def create_mo_message_handler(mo_received_event):
+def smart_sms_decode(raw_bytes, debug_mode=False):
+    """
+    Automatically detect and decode SMS message using GSM-7 or UTF-8.
+    The SMSC uses GSM-7 if all characters are in the GSM character set, otherwise UTF-8.
+    """
+    if not isinstance(raw_bytes, bytes):
+        return str(raw_bytes)
+    
+    # Try GSM-7 decoding first by mapping bytes to GSM character table
+    try:
+        gsm_table = smpplib.gsm.GSM_CHARACTER_TABLE
+        gsm_decoded_chars = []
+        
+        for byte_val in raw_bytes:
+            if byte_val < len(gsm_table):
+                gsm_decoded_chars.append(gsm_table[byte_val])
+            else:
+                # If any byte is outside GSM table, this is likely not GSM-7
+                raise ValueError("Byte outside GSM-7 range")
+        
+        gsm_result = ''.join(gsm_decoded_chars)
+        
+        # Check if the GSM-decoded result makes sense (no control characters except common ones)
+        # Allow common control chars: \n (10), \r (13), but not others like \x11
+        control_chars = set(chr(i) for i in range(32) if i not in [10, 13])  # Exclude \n and \r
+        
+        if not any(char in control_chars for char in gsm_result):
+            if debug_mode:
+                print(f"{Fore.YELLOW}🔍 DEBUG: Successfully decoded as GSM-7{Style.RESET_ALL}")
+            return gsm_result
+        else:
+            # Contains unexpected control characters, try UTF-8
+            if debug_mode:
+                print(f"{Fore.YELLOW}🔍 DEBUG: GSM-7 contains control chars, trying UTF-8{Style.RESET_ALL}")
+            raise ValueError("GSM-7 result contains unexpected control characters")
+            
+    except (ValueError, IndexError):
+        # GSM-7 failed, try UTF-8
+        try:
+            utf8_result = raw_bytes.decode('utf-8')
+            if debug_mode:
+                print(f"{Fore.YELLOW}🔍 DEBUG: Decoded as UTF-8{Style.RESET_ALL}")
+            return utf8_result
+        except UnicodeDecodeError:
+            # Final fallback - force UTF-8 with error handling
+            if debug_mode:
+                print(f"{Fore.YELLOW}🔍 DEBUG: UTF-8 failed, using error-tolerant UTF-8{Style.RESET_ALL}")
+            return raw_bytes.decode('utf-8', errors='ignore')
+
+
+def create_mo_message_handler(mo_received_event, debug_mode=False):
     """Create handler for incoming MO messages (deliver_sm PDUs)."""
     def mo_message_handler(pdu):
         global received_messages
         
+        # Debug: Print all incoming PDUs with details
+        if debug_mode:
+            pdu_details = f"command={pdu.command}, sequence={pdu.sequence}"
+            if hasattr(pdu, 'source_addr'):
+                pdu_details += f", source={pdu.source_addr}"
+            if hasattr(pdu, 'destination_addr'):
+                pdu_details += f", dest={pdu.destination_addr}"
+            if hasattr(pdu, 'short_message'):
+                pdu_details += f", message_len={len(pdu.short_message) if pdu.short_message else 0}"
+            print(f"{Fore.MAGENTA}🔍 DEBUG: Received PDU: {pdu_details}{Style.RESET_ALL}")
+        
         # Handle MO messages (deliver_sm PDUs)
         if hasattr(pdu, 'command') and pdu.command == 'deliver_sm':
+            if debug_mode:
+                print(f"{Fore.YELLOW}🔍 DEBUG: Processing deliver_sm PDU{Style.RESET_ALL}")
             # Extract MO message details
             source_addr = getattr(pdu, 'source_addr', 'Unknown')
             destination_addr = getattr(pdu, 'destination_addr', 'Unknown')
             short_message = getattr(pdu, 'short_message', b'')
+            if debug_mode:
+                print(f"{Fore.YELLOW}🔍 DEBUG: Extracted - source={source_addr}, dest={destination_addr}, msg_len={len(short_message) if short_message else 0}{Style.RESET_ALL}")
             
             # Decode message content
-            if isinstance(short_message, bytes):
-                try:
-                    # Try GSM 7-bit decoding first
-                    message_text = smpplib.gsm.gsm_decode(short_message)
-                except (UnicodeDecodeError, ValueError):
-                    # Fallback to UTF-8
-                    message_text = short_message.decode('utf-8', errors='ignore')
-            else:
-                message_text = str(short_message)
+            if debug_mode:
+                print(f"{Fore.YELLOW}🔍 DEBUG: Decoding message, type={type(short_message)}{Style.RESET_ALL}")
+                print(f"{Fore.YELLOW}🔍 DEBUG: Raw bytes (first 50): {short_message[:50]}{Style.RESET_ALL}")
+            
+            # Use smart decoding to automatically detect GSM-7 vs UTF-8
+            message_text = smart_sms_decode(short_message, debug_mode)
+            
+            # Decode addresses properly
+            source_str = source_addr.decode('utf-8') if isinstance(source_addr, bytes) else str(source_addr)
+            dest_str = destination_addr.decode('utf-8') if isinstance(destination_addr, bytes) else str(destination_addr)
+            
+            # Check if this is a delivery report
+            is_delivery_report = ('id:' in message_text and 'stat:' in message_text) or message_text.startswith("b'id:")
             
             # Store received message
             mo_message = {
-                'source': source_addr,
-                'destination': destination_addr,
+                'source': source_str,
+                'destination': dest_str,
                 'text': message_text,
                 'timestamp': time.time(),
+                'is_delivery_report': is_delivery_report,
                 'sequence': getattr(pdu, 'sequence', None)
             }
             received_messages.append(mo_message)
             
+            # Track delivery reports separately
+            if is_delivery_report:
+                delivery_reports_received.append(mo_message)
+            
+            # Only trigger MO received event for actual MO messages, not delivery reports
+            should_trigger_event = not is_delivery_report
+            
             # Display MO message
-            print(f"{Fore.BLUE}📨 MO Message received:{Style.RESET_ALL}")
-            print(f"  {Fore.CYAN}From: {source_addr}{Style.RESET_ALL}")
-            print(f"  {Fore.CYAN}To: {destination_addr}{Style.RESET_ALL}")
-            print(f"  {Fore.WHITE}Text: {message_text}{Style.RESET_ALL}")
+            if debug_mode:
+                print(f"{Fore.YELLOW}🔍 DEBUG: About to display MO message{Style.RESET_ALL}")
+            
+            if is_delivery_report:
+                print(f"{Fore.BLUE}📋 Delivery Report received:{Style.RESET_ALL}")
+                print(f"  From: {source_str}")
+                print(f"  To: {dest_str}")
+                # Extract status from delivery report
+                if 'stat:DELIVRD' in message_text:
+                    print(f"  Status: {Fore.GREEN}DELIVERED{Style.RESET_ALL}")
+                elif 'stat:' in message_text:
+                    import re
+                    status_match = re.search(r'stat:([A-Z]+)', message_text)
+                    status = status_match.group(1) if status_match else 'UNKNOWN'
+                    # Color failed statuses in red
+                    if status in ['UNDELIV', 'REJECTD', 'EXPIRED', 'UNKNOWN']:
+                        print(f"  Status: {Fore.RED}{status}{Style.RESET_ALL}")
+                    else:
+                        print(f"  Status: {status}")
+                else:
+                    print(f"  Raw: {message_text}")
+            else:
+                print(f"{Fore.GREEN}📨 MO Message received:{Style.RESET_ALL}")
+                print(f"  From: {source_str}")
+                print(f"  To: {dest_str}")
+                print(f"  Text: {message_text}")
             
             # Check for message correlation
+            if debug_mode:
+                print(f"{Fore.YELLOW}🔍 DEBUG: Checking message correlation{Style.RESET_ALL}")
             check_message_correlation(mo_message)
-            mo_received_event.set()
+            
+            # Only set event for actual MO messages, not delivery reports
+            if should_trigger_event:
+                if debug_mode:
+                    print(f"{Fore.YELLOW}🔍 DEBUG: Setting mo_received event for MO message{Style.RESET_ALL}")
+                mo_received_event.set()
+            elif debug_mode:
+                print(f"{Fore.YELLOW}🔍 DEBUG: Skipping event for delivery report{Style.RESET_ALL}")
             
         # Handle delivery reports
         elif hasattr(pdu, 'receipted_message_id') and pdu.receipted_message_id:
@@ -134,51 +250,72 @@ def create_mo_message_handler(mo_received_event):
 
 def check_message_correlation(mo_message):
     """Check if received MO message correlates with sent test message."""
-    text = mo_message['text']
-    
-    # Look for correlation by message content
-    # Check if this looks like our test message
-    if 'Testing SMPP' in text:
-        print(f"{Fore.GREEN}🔗 Message correlation found!{Style.RESET_ALL}")
-        print(f"  {Fore.GREEN}✅ Test message successfully received as MO SMS{Style.RESET_ALL}")
-        return True
+    # First try correlation by delivery report message ID
+    if mo_message.get('is_delivery_report', False):
+        text = mo_message['text']
+        # Extract message ID from delivery report
+        import re
+        id_match = re.search(r'id:(\d+)', text)
+        if id_match:
+            dlr_message_id = id_match.group(1)
+            # Check if this message ID matches any sent message
+            for seq, sent_info in sent_messages.items():
+                sent_id = sent_info['message_id']
+                # Handle both string and bytes message IDs
+                if isinstance(sent_id, bytes):
+                    sent_id = sent_id.decode('utf-8', errors='ignore')
+                if str(sent_id) == dlr_message_id:
+                    print(f"{Fore.GREEN}🔗 Delivery report correlation found!{Style.RESET_ALL}")
+                    print(f"  {Fore.GREEN}✅ Message ID {dlr_message_id} matches sent message (seq: {seq}){Style.RESET_ALL}")
+                    # Mark this sent message as having received its delivery report
+                    sent_messages[seq]['dlr_received'] = True
+                    return True
     
     return False
 
 
-def send_test_messages(client, count, custom_text, server_choice, username, use_ssl, smpp_params):
-    """Send test messages that will be received as MO messages."""
-    print(f"{Fore.CYAN}📤 Sending {count} test message(s)...{Style.RESET_ALL}")
+def has_received_all_confirmations():
+    """Check if we have received both MO message and delivery report for sent messages."""
+    if not sent_messages:
+        return False
     
-    for i in range(count):
-        message = custom_text or create_test_message(server_choice, username, use_ssl)
-        
-        print(f"{Fore.CYAN}📤 Sending message {i+1}/{count}{Style.RESET_ALL}")
-        
-        pdu = client.send_message(
-            source_addr_ton=smpp_params['source_ton'],
-            source_addr_npi=smpp_params['source_npi'],
-            source_addr=smpp_params['source_address'],
-            dest_addr_ton=smpp_params['dest_ton'],
-            dest_addr_npi=smpp_params['dest_npi'],
-            destination_addr=smpp_params['dest_address'],
-            short_message=smpplib.gsm.gsm_encode(message),
-            data_coding=0x00,  # GSM 7-bit encoding
-            registered_delivery=True
-        )
-        print(f"{Fore.GREEN}✅ Message queued with sequence: {pdu.sequence}{Style.RESET_ALL}")
-        
-        if i < count - 1:
-            time.sleep(1)  # Wait 1 second between messages
+    # Check if we have at least one MO message (actual SMS content)
+    mo_messages = [msg for msg in received_messages if not msg.get('is_delivery_report', False)]
+    has_mo_message = len(mo_messages) > 0
+    
+    # Check if all sent messages have received their delivery reports
+    all_dlrs_received = all(sent_info.get('dlr_received', False) for sent_info in sent_messages.values())
+    
+    return has_mo_message and all_dlrs_received
+
+
+def send_test_message(client, custom_text, server_choice, username, use_ssl, smpp_params):
+    """Send a test message that will be received as MO message."""
+    print(f"{Fore.CYAN}📤 Sending test message...{Style.RESET_ALL}")
+    
+    message = custom_text or create_test_message(server_choice, username, use_ssl)
+    
+    pdu = client.send_message(
+        source_addr_ton=smpp_params['source_ton'],
+        source_addr_npi=smpp_params['source_npi'],
+        source_addr=smpp_params['originating_phone_number'],
+        dest_addr_ton=smpp_params['dest_ton'],
+        dest_addr_npi=smpp_params['dest_npi'],
+        destination_addr=smpp_params['receiving_phone_number'],
+        short_message=smpplib.gsm.gsm_encode(message),
+        data_coding=0x00,  # GSM 7-bit encoding
+        registered_delivery=True
+    )
+    print(f"{Fore.GREEN}✅ Message queued with sequence: {pdu.sequence}{Style.RESET_ALL}")
 
 
 def main():
+    global debug_mode
     args = parse_arguments()
+    debug_mode = args.debug
     use_ssl = args.ssl
     interactive = args.interactive
     mode = args.mode
-    message_count = args.count
-    wait_time = args.wait
     custom_text = args.text
 
     print(f"{Fore.CYAN}{Style.BRIGHT}SMPP Receiver{Style.RESET_ALL}")
@@ -214,18 +351,18 @@ def main():
             print("Password is required")
             sys.exit(1)
 
-        if mode in ['send', 'test']:
-            dest_addr = input(f"Enter destination address [{SMPP_PARAMS['dest_address']}]: ").strip()
-            if not dest_addr:
-                dest_addr = SMPP_PARAMS['dest_address']
-            SMPP_PARAMS['dest_address'] = dest_addr
+        if mode == 'send-receive':
+            receiving_phone_number = input(f"Enter destination address [{SMPP_PARAMS['receiving_phone_number']}]: ").strip()
+            if not receiving_phone_number:
+                receiving_phone_number = SMPP_PARAMS['receiving_phone_number']
+            SMPP_PARAMS['receiving_phone_number'] = receiving_phone_number
     else:
         # Use values from environment
         username = SMPP_PARAMS['username']
         password = SMPP_PARAMS['password']
         
         validate_required_params(SMPP_PARAMS, ['username', 'password'])
-        print_using_params(username, SMPP_PARAMS.get('dest_address', 'N/A'))
+        print_using_params(username, SMPP_PARAMS.get('receiving_phone_number', 'N/A'))
 
     # Create client
     try:
@@ -240,11 +377,9 @@ def main():
         # Create event to signal when MO message is received
         mo_received = Event()
         
-        # Set handlers
+        # Set up message handlers
+        client.set_message_received_handler(create_mo_message_handler(mo_received, debug_mode))
         client.set_message_sent_handler(message_sent_handler)
-        client.set_message_received_handler(create_mo_message_handler(mo_received))
-
-        # Connect and bind as transceiver
         client.connect()
         print(f"{Fore.GREEN}✅ Connected{Style.RESET_ALL}")
         
@@ -263,32 +398,56 @@ def main():
         listener.start()
 
         # Execute based on mode
-        if mode == 'receive':
-            print(f"{Fore.WHITE}👂 Listening for MO messages for {wait_time} seconds...{Style.RESET_ALL}")
-            print(f"{Fore.MAGENTA}💡 (Press Ctrl+C to stop early){Style.RESET_ALL}")
+        if mode == 'receive-only':
+            print(f"{Fore.WHITE}👂 Listening for MO messages indefinitely...{Style.RESET_ALL}")
+            print(f"{Fore.MAGENTA}💡 Press Ctrl+C to stop{Style.RESET_ALL}")
             
-            if mo_received.wait(timeout=wait_time):
-                print(f"{Fore.GREEN}✅ Received {len(received_messages)} MO message(s){Style.RESET_ALL}")
-            else:
-                print(f"{Fore.WHITE}⏰ Timeout reached, received {len(received_messages)} MO message(s){Style.RESET_ALL}")
+            try:
+                # Wait indefinitely for messages
+                while True:
+                    if mo_received.wait(timeout=1):
+                        # Reset the event to continue listening
+                        mo_received.clear()
+                    # Continue the loop - this keeps the connection alive
+            except KeyboardInterrupt:
+                print(f"{Fore.WHITE}\n⏹️  Stopped by user{Style.RESET_ALL}")
+                actual_mo_count = len([msg for msg in received_messages if not msg.get('is_delivery_report', False)])
+                print(f"{Fore.GREEN}✅ Received {actual_mo_count} MO message(s) total{Style.RESET_ALL}")
                 
-        elif mode == 'send':
-            send_test_messages(client, message_count, custom_text, server_choice, username, use_ssl, SMPP_PARAMS)
-            
-        elif mode == 'test':
+        elif mode == 'send-receive':
             print(f"{Fore.YELLOW}🧪 Starting end-to-end MO SMS test{Style.RESET_ALL}")
             
-            # Send test message(s)
-            send_test_messages(client, message_count, custom_text, server_choice, username, use_ssl, SMPP_PARAMS)
+            # Send test message
+            send_test_message(client, custom_text, server_choice, username, use_ssl, SMPP_PARAMS)
             
-            # Wait for MO messages
-            print(f"{Fore.WHITE}👂 Waiting for MO messages for {wait_time} seconds...{Style.RESET_ALL}")
+            # Wait for both MO message and delivery report
+            print(f"{Fore.WHITE}👂 Waiting for MO message and delivery report for 30 seconds...{Style.RESET_ALL}")
             print(f"{Fore.MAGENTA}💡 (Press Ctrl+C to stop early){Style.RESET_ALL}")
             
-            if mo_received.wait(timeout=wait_time):
-                print(f"{Fore.GREEN}✅ Test completed - received {len(received_messages)} MO message(s){Style.RESET_ALL}")
+            # Wait for MO message first
+            if mo_received.wait(timeout=30):
+                # Continue waiting for delivery report
+                print(f"{Fore.YELLOW}📨 MO message received, waiting for delivery report...{Style.RESET_ALL}")
+                
+                # Wait additional time for delivery report
+                start_time = time.time()
+                while time.time() - start_time < 15:  # Wait up to 15 more seconds for DLR
+                    if has_received_all_confirmations():
+                        actual_mo_count = len([msg for msg in received_messages if not msg.get('is_delivery_report', False)])
+                        dlr_count = len(delivery_reports_received)
+                        print(f"{Fore.GREEN}✅ Test completed - received {actual_mo_count} MO message(s) and {dlr_count} delivery report(s){Style.RESET_ALL}")
+                        break
+                    time.sleep(0.5)
+                else:
+                    # Timeout waiting for delivery report
+                    actual_mo_count = len([msg for msg in received_messages if not msg.get('is_delivery_report', False)])
+                    dlr_count = len(delivery_reports_received)
+                    print(f"{Fore.YELLOW}⏰ Delivery report timeout - received {actual_mo_count} MO message(s) and {dlr_count} delivery report(s){Style.RESET_ALL}")
             else:
-                print(f"{Fore.WHITE}⏰ Timeout reached - received {len(received_messages)} MO message(s){Style.RESET_ALL}")
+                actual_mo_count = len([msg for msg in received_messages if not msg.get('is_delivery_report', False)])
+                dlr_count = len(delivery_reports_received)
+                color = Fore.RED if actual_mo_count == 0 else Fore.WHITE
+                print(f"{color}⏰ Timeout reached - received {actual_mo_count} MO message(s) and {dlr_count} delivery report(s){Style.RESET_ALL}")
 
         # Graceful shutdown
         print(f"{Fore.WHITE}🔄 Shutting down...{Style.RESET_ALL}")
