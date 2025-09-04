@@ -11,6 +11,7 @@ import ssl
 import sys
 from dotenv import load_dotenv
 from colorama import Fore, Style, init
+import smpplib.gsm
 
 # Initialize colorama for cross-platform colored output
 init(autoreset=True)
@@ -178,3 +179,80 @@ def create_test_message(server_choice, username, use_ssl, custom_text=None):
         return custom_text
     
     return f"Testing SMPP\nServer: {server_choice}\nAccount: {username}\nSSL/TLS: {'YES' if use_ssl else 'NO'}\nTime: {time.strftime('%Y-%m-%d %H:%M:%S')}"
+
+
+def encode_sms_message(message_text, data_coding=0x00):
+    """Encode SMS message according to specified data_coding."""
+    if data_coding == 0x00 or data_coding & 0xF0 == 0xF0:  # GSM 7-bit
+        return smpplib.gsm.gsm_encode(message_text)
+    elif data_coding == 0x01:  # ASCII
+        return message_text.encode('ascii', errors='replace')
+    elif data_coding == 0x02:  # 8-bit binary (UTF-8)
+        return message_text.encode('utf-8')
+    elif data_coding == 0x03:  # Latin-1
+        return message_text.encode('iso-8859-1', errors='replace')
+    elif data_coding == 0x08:  # UCS2 (UTF-16BE)
+        return message_text.encode('utf-16be')
+    else:
+        # Default to GSM 7-bit for unknown encodings
+        return smpplib.gsm.gsm_encode(message_text)
+
+
+def gsm_decode(encoded_bytes):
+    """Decode GSM 7-bit encoded bytes using the GSM character table.
+    
+    This function implements the missing GSM 7-bit decoding functionality
+    that is not provided by smpplib.
+    """
+    if not isinstance(encoded_bytes, bytes):
+        return str(encoded_bytes)
+    
+    result = []
+    i = 0
+    while i < len(encoded_bytes):
+        byte_val = encoded_bytes[i]
+        
+        # Handle escape character for extended GSM character set
+        if byte_val == 0x1B and i + 1 < len(encoded_bytes):
+            # Extended character - add 0x80 to the next byte's index
+            next_byte = encoded_bytes[i + 1]
+            char_index = next_byte + 0x80
+            i += 2  # Skip both bytes
+        else:
+            char_index = byte_val
+            i += 1
+        
+        # Map byte value to GSM character
+        if char_index < len(smpplib.gsm.GSM_CHARACTER_TABLE):
+            result.append(smpplib.gsm.GSM_CHARACTER_TABLE[char_index])
+        else:
+            # Unknown character - use replacement
+            result.append('?')
+    
+    return ''.join(result)
+
+
+def decode_sms_message(raw_bytes, data_coding=0x00):
+    """Decode SMS message using proper data_coding field from SMPP PDU."""
+    if not isinstance(raw_bytes, bytes):
+        return str(raw_bytes)
+    
+    try:
+        if data_coding == 0x00:  # GSM 7-bit default alphabet
+            return gsm_decode(raw_bytes)
+        elif data_coding == 0x01:  # ASCII
+            return raw_bytes.decode('ascii', errors='replace')
+        elif data_coding == 0x02:  # 8-bit binary
+            return raw_bytes.decode('utf-8', errors='replace')
+        elif data_coding == 0x03:  # Latin-1 (ISO-8859-1)
+            return raw_bytes.decode('iso-8859-1', errors='replace')
+        elif data_coding == 0x08:  # UCS2 (Unicode)
+            return raw_bytes.decode('utf-16be', errors='replace')
+        elif data_coding & 0xF0 == 0xF0:  # Message class indicators with GSM 7-bit
+            return gsm_decode(raw_bytes)
+        else:
+            # Unknown data_coding - fallback to GSM 7-bit
+            return gsm_decode(raw_bytes)
+    except Exception:
+        # Final fallback - UTF-8 with error handling
+        return raw_bytes.decode('utf-8', errors='replace')
