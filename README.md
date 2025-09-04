@@ -2,13 +2,11 @@
 
 A collection of tools for testing the SMPP (Short Message Peer-to-Peer) protocol towards Spirius SMSCs.
 
-## Overview
+This project is provided by Spirius to showcase the SMPP protocol integration as a means to get started and to help with integration testing. It is not intended for production use. 
 
-This project provides utilities for working with SMS messages using the SMPP protocol. It is designed to help with debugging, testing, and developing applications that work with SMS messaging.
+## Tools included
 
-Currently, the following tools are available:
-
-- **smpp_sender** - Command line utility to send SMS messages using the SMPP protocol
+- smpp_sender: A command-line tool for sending SMS messages using the SMPP protocol.
 
 ## Prerequisites
 
@@ -20,36 +18,53 @@ Currently, the following tools are available:
 
 This project uses [Poetry](https://python-poetry.org/) for dependency management. To set up the project:
 
-1. Make sure you have Poetry installed:
-   ```
+   ```bash
+   # Install Poetry
    curl -sSL https://install.python-poetry.org | python3 -
-   ```
 
-2. Clone this repository and navigate to the project directory:
-   ```
+   # Clone repository
    git clone <repository-url>
    cd spirius-smpp-tools
-   ```
 
-3. Install dependencies using Poetry:
-   ```
+   # Install dependencies
    poetry install
-   ```
 
-4. Activate the Poetry virtual environment:
-   ```
+   # Activate virtual environment
    poetry shell
    ```
 
-## Tools
+# Tools
 
-### smpp_sender
+## smpp_sender
 
-Send SMS messages using the SMPP protocol.
+A command-line tool for sending SMS messages using the SMPP protocol. Supports both plain TCP and SSL/TLS connections with interactive and non-interactive modes.
 
-// TODO: Add documentation here
+### Usage
 
-## License
+```bash
+python tools/smpp_sender.py [OPTIONS]
+```
 
-This project is provided by Spirius to showcase the SMPP protocol integration as a means to get started. It is not intended for production use. 
-The components derived from open-source projects maintain their original licenses.
+### Options
+
+- `-s, --ssl`: Use SSL/TLS connection (default: plain TCP)
+- `-i, --interactive`: Interactive mode - prompt for username, password, and destination
+- `-h, --help`: Show help message
+
+### Configuration
+
+The tool uses environment variables for configuration. Copy `.env.example` to `.env` and configure the variables.
+
+### Examples
+
+**Interactive mode (prompts for credentials):**
+```bash
+python tools/smpp_sender.py -i     # plain TCP
+python tools/smpp_sender.py -i -s  # with SSL/TLS
+```
+
+**Non-interactive mode (uses .env values):**
+```bash
+python tools/smpp_sender.py        # plain TCP
+python tools/smpp_sender.py -s     # with SSL/TLS
+```
