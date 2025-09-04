@@ -268,6 +268,12 @@ def check_message_correlation(mo_message):
                     print(f"  {Fore.GREEN}✅ Message ID {dlr_message_id} matches sent message (seq: {seq}){Style.RESET_ALL}")
                     # Mark this sent message as having received its delivery report
                     sent_messages[seq]['dlr_received'] = True
+                    
+                    # Extract and store delivery status for early termination logic
+                    status_match = re.search(r'stat:([A-Z]+)', text)
+                    if status_match:
+                        sent_messages[seq]['dlr_status'] = status_match.group(1)
+                    
                     return True
     
     return False
@@ -285,7 +291,13 @@ def has_received_all_confirmations():
     # Check if all sent messages have received their delivery reports
     all_dlrs_received = all(sent_info.get('dlr_received', False) for sent_info in sent_messages.values())
     
-    return has_mo_message and all_dlrs_received
+    # If we received a failed delivery report (UNDELIV, etc.), we can stop early
+    # since we know the message won't arrive as MO
+    has_failed_delivery = any(sent_info.get('dlr_received', False) and 
+                             sent_info.get('dlr_status') in ['UNDELIV', 'REJECTD', 'EXPIRED', 'UNKNOWN'] 
+                             for sent_info in sent_messages.values())
+    
+    return (has_mo_message and all_dlrs_received) or has_failed_delivery
 
 
 def send_test_message(client, custom_text, server_choice, username, use_ssl, smpp_params):

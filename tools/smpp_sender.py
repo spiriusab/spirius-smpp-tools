@@ -34,16 +34,26 @@ SMSC_SERVERS = get_smsc_servers()
 CONNECTION_CONFIG = get_connection_config()
 SMPP_PARAMS = get_smpp_params()
 
+# Global debug mode flag
+debug_mode = False
+
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='SMPP Sender - Connect to SMPP v3.4 interface and send SMS')
     parser.add_argument('-s', '--ssl', action='store_true', help='Use SSL/TLS connection')
     parser.add_argument('-i', '--interactive', action='store_true', help='Interactive mode - prompt for username, password, and destination')
+    parser.add_argument('-d', '--debug', action='store_true', help='Enable debug logging')
     return parser.parse_args()
 
 
 def message_sent_handler(pdu):
-    print(f"{Fore.GREEN}📤 Message sent - Sequence: {pdu.sequence}, Message ID: {pdu.message_id}{Style.RESET_ALL}")
+    # Convert message ID to string for display
+    message_id_str = pdu.message_id.decode('utf-8', errors='ignore') if isinstance(pdu.message_id, bytes) else str(pdu.message_id)
+    
+    if debug_mode:
+        print(f"{Fore.GREEN}📤 Message sent - Sequence: {pdu.sequence}, Message ID: {message_id_str}{Style.RESET_ALL}")
+    else:
+        print(f"{Fore.GREEN}📤 Message sent - Message ID: {message_id_str}{Style.RESET_ALL}")
 
 
 def create_message_received_handler(delivery_received_event):
@@ -63,7 +73,11 @@ def create_message_received_handler(delivery_received_event):
                 import re
                 status_match = re.search(r'stat:([A-Z]+)', msg)
                 status = status_match.group(1) if status_match else 'UNKNOWN'
-                print(f"{Fore.YELLOW}📋 Delivery report: Status = {status}{Style.RESET_ALL}")
+                # Color failed statuses in red
+                if status in ['UNDELIV', 'REJECTD', 'EXPIRED', 'UNKNOWN']:
+                    print(f"{Fore.RED}📋 Delivery report: Status = {status}{Style.RESET_ALL}")
+                else:
+                    print(f"{Fore.YELLOW}📋 Delivery report: Status = {status}{Style.RESET_ALL}")
                 delivery_received_event.set()
             else:
                 print(f"{Fore.BLUE}📨 Message received: {msg}{Style.RESET_ALL}")
@@ -73,7 +87,9 @@ def create_message_received_handler(delivery_received_event):
 
 
 def main():
+    global debug_mode
     args = parse_arguments()
+    debug_mode = args.debug
     use_ssl = args.ssl
     interactive = args.interactive
 
@@ -194,7 +210,7 @@ def main():
         if delivery_received.wait(timeout=30):
             time.sleep(0.1)  # Brief pause to ensure all responses are processed
         else:
-            print(f"{Fore.WHITE}⏰ Timeout reached, no delivery report received{Style.RESET_ALL}")
+            print(f"{Fore.RED}⏰ Timeout reached, no delivery report received{Style.RESET_ALL}")
         
         # Graceful shutdown sequence
         print(f"{Fore.WHITE}🔄 Shutting down...{Style.RESET_ALL}")
