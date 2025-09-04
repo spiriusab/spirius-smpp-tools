@@ -84,6 +84,11 @@ python tools/smpp_receiver.py [OPTIONS]
 
 - `-s, --ssl`: Use SSL/TLS connection (default: plain TCP)
 - `-i, --interactive`: Interactive mode - prompt for username, password, and destination
+- `-m, --mode`: Operation mode (default: send-receive)
+  - `send-receive`: Send a test message and wait for MO messages and delivery reports
+  - `receive-only`: Only listen for incoming MO messages (no test message sent)
+- `-t, --text`: Custom message text for test message (default: auto-generated)
+- `-d, --debug`: Enable debug logging with detailed sequence information
 - `-h, --help`: Show help message
 
 ### Configuration
@@ -92,24 +97,23 @@ The tool uses environment variables for configuration. Copy `.env.example` to `.
 
 ### Examples
 
-**Interactive mode (prompts for credentials):**
+**Send-receive mode (default - tests end-to-end MO functionality):**
 ```bash
-python tools/smpp_receiver.py -i     # plain TCP
-python tools/smpp_receiver.py -i -s  # with SSL/TLS
+python tools/smpp_receiver.py -m send-receive  # Send test message and wait for MO/DLR
+python tools/smpp_receiver.py                  # Same as above (default mode)
 ```
 
-**Non-interactive mode (uses .env values):**
+**Receive-only mode (listen for real MO messages):**
 ```bash
-python tools/smpp_receiver.py        # plain TCP
-python tools/smpp_receiver.py -s     # with SSL/TLS
+python tools/smpp_receiver.py -m receive-only  # Only listen, no test message sent
 ```
 
-**Send-receive mode (uses .env values):**
+**Custom test message:**
 ```bash
-python tools/smpp_receiver.py -m send-receive
+python tools/smpp_receiver.py -t "Custom test message"
 ```
 
-**Receive-only mode (uses .env values):**
+**Debug mode (shows sequence numbers and detailed info):**
 ```bash
-python tools/smpp_receiver.py -m receive-only
+python tools/smpp_receiver.py -d
 ```
