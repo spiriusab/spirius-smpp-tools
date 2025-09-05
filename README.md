@@ -51,16 +51,14 @@ The tool uses environment variables for configuration.
 ### Usage
 
 ```bash
-# Interactive mode (prompts for credentials)
-./smpp_sender.py -i     # plain TCP
-./smpp_sender.py -i -s  # with SSL/TLS
+# Plain TCP
+./smpp_sender.py
 
-# Non-interactive mode (uses .env values)
-./smpp_sender.py        # plain TCP
-./smpp_sender.py -s     # with SSL/TLS
+# SSL/TLS
+./smpp_sender.py -s
 
-# Custom message text
-./smpp_sender.py -t "Custom SMS message"
+# Override destination and text with command line argument
+./smpp_sender.py -d 46123456789 -t "Custom message"
 ```
 
 ## smpp_receiver
@@ -77,14 +75,13 @@ The tool uses environment variables for configuration.
 
 ```bash
 # Send-receive mode (default - tests end-to-end MO functionality)
-./smpp_receiver.py -m send-receive  # Send test message and wait for MO/DLR
-./smpp_receiver.py                  # Same as above (default mode)
+./smpp_receiver.py                  # Defaults to 'send-receive' mode
 
-# Receive-only mode (listen for real MO messages)
+# Receive-only mode (listen for MO messages and DLRs)
 ./smpp_receiver.py -m receive-only  # Only listen, no test message sent
 
-# Debug mode (shows sequence numbers and detailed info)
-./smpp_receiver.py -d
+# Verbose logging
+./smpp_receiver.py -v
 ```
 
 ## sms_encoder

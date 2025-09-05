@@ -47,9 +47,19 @@ except Exception as e:
 def parse_arguments():
     parser = argparse.ArgumentParser(description='SMPP Sender - Connect to SMPP v3.4 interface and send SMS')
     parser.add_argument('-s', '--ssl', action='store_true', help='Use SSL/TLS connection')
-    parser.add_argument('-i', '--interactive', action='store_true', help='Interactive mode - prompt for username, password, and destination')
+    parser.add_argument('-d', '--dest', help='Destination phone number (E.164 format, overrides DEST_ADDRESS from environment)')
     parser.add_argument('-t', '--text', help='Custom message text (default: auto-generated)')
-    return parser.parse_args()
+    args = parser.parse_args()
+    
+    # Validate destination argument immediately if provided
+    if args.dest:
+        try:
+            validate_e164_address(args.dest)
+        except ValueError as e:
+            print(f"{Fore.RED}❌ Invalid destination address: {e}{Style.RESET_ALL}")
+            sys.exit(1)
+    
+    return args
 
 
 def message_sent_handler(pdu):
@@ -92,7 +102,7 @@ def create_message_received_handler(delivery_received_event):
 def main():
     args = parse_arguments()
     use_ssl = args.ssl
-    interactive = args.interactive
+    dest_override = args.dest
     custom_text = args.text
 
     print(f"{Fore.CYAN}{Style.BRIGHT}SMPP Sender{Style.RESET_ALL}")
@@ -129,21 +139,11 @@ def main():
     username = SMPP_PARAMS['username']
     password = SMPP_PARAMS['password']
     
-    # Get destination address based on interactive mode
-    if interactive:
-        dest_addr = input(f"Enter destination address [{SMPP_PARAMS['dest_address']}]: ").strip()
-        if not dest_addr:
-            dest_addr = SMPP_PARAMS['dest_address']
-        
-        # Validate E.164 format only for user-entered destination
-        try:
-            validate_e164_address(dest_addr)
-        except ValueError as e:
-            print(f"{Fore.RED}❌ Invalid destination address: {e}{Style.RESET_ALL}")
-            sys.exit(1)
+    # Use destination from argument or environment
+    if dest_override:
+        dest_addr = dest_override  # Already validated in parse_arguments()
     else:
-        dest_addr = SMPP_PARAMS['dest_address']
-        # No validation needed - already validated in get_smpp_params()
+        dest_addr = SMPP_PARAMS['dest_address']  # Already validated in get_smpp_params()
     print_using_params(username, dest_addr)
 
     message = custom_text or create_test_message(server_choice, username, use_ssl)

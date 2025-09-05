@@ -53,15 +53,15 @@ sent_messages = {}
 received_messages = []
 delivery_reports_received = []
 
-# Global debug mode flag
-debug_mode = False
+# Global verbose mode flag
+verbose_mode = False
 
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='SMPP Receiver - Receive MO SMS and test end-to-end MO functionality')
     parser.add_argument('-s', '--ssl', action='store_true', help='Use SSL/TLS connection')
     parser.add_argument('-m', '--mode', choices=['send-receive', 'receive-only'], default='send-receive', help='Operation mode (default: send-receive)')
-    parser.add_argument('-d', '--debug', action='store_true', help='Enable debug logging')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose logging')
     return parser.parse_args()
 
 
@@ -80,48 +80,39 @@ def message_sent_handler(pdu):
         }
 
 
-def decode_sms_message_with_debug(raw_bytes, data_coding, debug_mode=False):
+def decode_sms_message_with_verbose_logging(raw_bytes, data_coding):
     """
-    Wrapper for decode_sms_message with debug output.
+    Wrapper for decode_sms_message with verbose output.
     """
-    if debug_mode:
-        print(f"{Fore.YELLOW}🔍 DEBUG: Decoding with data_coding=0x{data_coding:02X}{Style.RESET_ALL}")
-        
-        # Map data_coding to description for debug output
-        coding_descriptions = {
-            0x00: "GSM 7-bit default alphabet",
-            0x01: "ASCII",
-            0x02: "8-bit binary (UTF-8)",
-            0x03: "Latin-1 (ISO-8859-1)",
-            0x08: "UCS2 (UTF-16BE)"
-        }
-        
-        if data_coding in coding_descriptions:
-            print(f"{Fore.YELLOW}🔍 DEBUG: Using {coding_descriptions[data_coding]}{Style.RESET_ALL}")
-        elif data_coding & 0xF0 == 0xF0:
-            print(f"{Fore.YELLOW}🔍 DEBUG: GSM 7-bit with message class{Style.RESET_ALL}")
-        else:
-            print(f"{Fore.YELLOW}🔍 DEBUG: Unknown data_coding, falling back to GSM 7-bit{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}🔍 Decoding with data_coding=0x{data_coding:02X}{Style.RESET_ALL}")
     
-    try:
-        result = decode_sms_message(raw_bytes, data_coding)
-        if debug_mode:
-            print(f"{Fore.GREEN}🔍 DEBUG: Successfully decoded message{Style.RESET_ALL}")
-        return result
-    except Exception as e:
-        if debug_mode:
-            print(f"{Fore.RED}🔍 DEBUG: Decoding failed ({e}), using fallback{Style.RESET_ALL}")
-        # Use the common function's fallback handling
-        return decode_sms_message(raw_bytes, data_coding)
+    # Map data_coding to description for verbose output
+    coding_descriptions = {
+        0x00: "GSM 7-bit default alphabet",
+        0x01: "ASCII",
+        0x02: "8-bit binary (UTF-8)",
+        0x03: "Latin-1 (ISO-8859-1)",
+        0x08: "UCS2 (UTF-16BE)"
+    }
+    
+    if data_coding in coding_descriptions:
+        print(f"{Fore.YELLOW}🔍 Using {coding_descriptions[data_coding]}{Style.RESET_ALL}")
+    elif data_coding & 0xF0 == 0xF0:
+        print(f"{Fore.YELLOW}🔍 GSM 7-bit with message class{Style.RESET_ALL}")
+    else:
+        print(f"{Fore.YELLOW}🔍 Unknown data_coding, falling back to GSM 7-bit{Style.RESET_ALL}")
 
+    result = decode_sms_message(raw_bytes, data_coding)
+    print(f"{Fore.GREEN}🔍 Successfully decoded message{Style.RESET_ALL}")
+    return result
 
-def create_mo_message_handler(mo_received_event, debug_mode=False):
+def create_mo_message_handler(mo_received_event, verbose_mode=False):
     """Create handler for incoming MO messages (deliver_sm PDUs)."""
     def mo_message_handler(pdu):
         global received_messages
         
-        # Debug: Print all incoming PDUs with details
-        if debug_mode:
+        # Print all incoming PDUs with details
+        if verbose_mode:
             pdu_details = f"command={pdu.command}, sequence={pdu.sequence}"
             if hasattr(pdu, 'source_addr'):
                 pdu_details += f", source={pdu.source_addr}"
@@ -129,28 +120,31 @@ def create_mo_message_handler(mo_received_event, debug_mode=False):
                 pdu_details += f", dest={pdu.destination_addr}"
             if hasattr(pdu, 'short_message'):
                 pdu_details += f", message_len={len(pdu.short_message) if pdu.short_message else 0}"
-            print(f"{Fore.MAGENTA}🔍 DEBUG: Received PDU: {pdu_details}{Style.RESET_ALL}")
+            print(f"{Fore.MAGENTA}🔍 Received PDU: {pdu_details}{Style.RESET_ALL}")
         
         # Handle MO messages (deliver_sm PDUs)
         if hasattr(pdu, 'command') and pdu.command == 'deliver_sm':
-            if debug_mode:
-                print(f"{Fore.YELLOW}🔍 DEBUG: Processing deliver_sm PDU{Style.RESET_ALL}")
+            if verbose_mode:
+                print(f"{Fore.YELLOW}🔍 Processing deliver_sm PDU{Style.RESET_ALL}")
             # Extract MO message details
             source_addr = getattr(pdu, 'source_addr', 'Unknown')
             destination_addr = getattr(pdu, 'destination_addr', 'Unknown')
             short_message = getattr(pdu, 'short_message', b'')
             data_coding = getattr(pdu, 'data_coding', 0x00)  # Default to GSM 7-bit if not present
             
-            if debug_mode:
-                print(f"{Fore.YELLOW}🔍 DEBUG: Extracted - source={source_addr}, dest={destination_addr}, msg_len={len(short_message) if short_message else 0}, data_coding=0x{data_coding:02X}{Style.RESET_ALL}")
+            if verbose_mode:
+                print(f"{Fore.YELLOW}🔍 Extracted - source={source_addr}, dest={destination_addr}, msg_len={len(short_message) if short_message else 0}, data_coding=0x{data_coding:02X}{Style.RESET_ALL}")
             
             # Decode message content using proper data_coding field
-            if debug_mode:
-                print(f"{Fore.YELLOW}🔍 DEBUG: Decoding message, type={type(short_message)}{Style.RESET_ALL}")
-                print(f"{Fore.YELLOW}🔍 DEBUG: Raw bytes (first 50): {short_message[:50]}{Style.RESET_ALL}")
+            if verbose_mode:
+                print(f"{Fore.YELLOW}🔍 Decoding message, type={type(short_message)}{Style.RESET_ALL}")
+                print(f"{Fore.YELLOW}🔍 Raw bytes (first 50): {short_message[:50]}{Style.RESET_ALL}")
             
             # Use proper SMPP data_coding field for decoding
-            message_text = decode_sms_message_with_debug(short_message, data_coding, debug_mode)
+            if verbose_mode:
+                message_text = decode_sms_message_with_verbose_logging(short_message, data_coding)
+            else:
+                message_text = decode_sms_message(short_message, data_coding)
             
             # Decode addresses properly
             source_str = source_addr.decode('utf-8') if isinstance(source_addr, bytes) else str(source_addr)
@@ -178,9 +172,6 @@ def create_mo_message_handler(mo_received_event, debug_mode=False):
             should_trigger_event = not is_delivery_report
             
             # Display MO message
-            if debug_mode:
-                print(f"{Fore.YELLOW}🔍 DEBUG: About to display MO message{Style.RESET_ALL}")
-            
             if is_delivery_report:
                 print(f"{Fore.BLUE}📋 Delivery Report received:{Style.RESET_ALL}")
                 print(f"  From: {source_str}")
@@ -206,17 +197,17 @@ def create_mo_message_handler(mo_received_event, debug_mode=False):
                 print(f"  Text: {message_text}")
             
             # Check for message correlation
-            if debug_mode:
-                print(f"{Fore.YELLOW}🔍 DEBUG: Checking message correlation{Style.RESET_ALL}")
+            if verbose_mode:
+                print(f"{Fore.YELLOW}🔍 Checking message correlation{Style.RESET_ALL}")
             check_message_correlation(mo_message)
             
             # Only set event for actual MO messages, not delivery reports
             if should_trigger_event:
-                if debug_mode:
-                    print(f"{Fore.YELLOW}🔍 DEBUG: Setting mo_received event for MO message{Style.RESET_ALL}")
+                if verbose_mode:
+                    print(f"{Fore.YELLOW}🔍 Setting mo_received event for MO message{Style.RESET_ALL}")
                 mo_received_event.set()
-            elif debug_mode:
-                print(f"{Fore.YELLOW}🔍 DEBUG: Skipping event for delivery report{Style.RESET_ALL}")
+            elif verbose_mode:
+                print(f"{Fore.YELLOW}🔍 Skipping event for delivery report{Style.RESET_ALL}")
             
         # Handle delivery reports
         elif hasattr(pdu, 'receipted_message_id') and pdu.receipted_message_id:
@@ -313,9 +304,9 @@ def send_test_message(client, server_choice, username, use_ssl, smpp_params):
 
 
 def main():
-    global debug_mode
+    global verbose_mode
     args = parse_arguments()
-    debug_mode = args.debug
+    verbose_mode = args.verbose
     use_ssl = args.ssl
     mode = args.mode
 
@@ -363,7 +354,7 @@ def main():
         mo_received = Event()
         
         # Set up message handlers
-        client.set_message_received_handler(create_mo_message_handler(mo_received, debug_mode))
+        client.set_message_received_handler(create_mo_message_handler(mo_received, verbose_mode))
         client.set_message_sent_handler(message_sent_handler)
         client.connect()
         print(f"{Fore.GREEN}✅ Connected{Style.RESET_ALL}")
