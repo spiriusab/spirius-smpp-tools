@@ -61,9 +61,9 @@ The tool will show:
     parser.add_argument('text', nargs='?', help='Text message to encode')
     parser.add_argument('-e', '--encoding', choices=['gsm', 'ascii', 'utf8', 'latin1', 'ucs2'], 
                        help='Encoding method (default: auto-select)')
-    parser.add_argument('--list-encodings', action='store_true', 
+    parser.add_argument('-l', '--list-encodings', action='store_true', 
                        help='List supported encodings and exit')
-    parser.add_argument('--verbose', action='store_true', 
+    parser.add_argument('-v', '--verbose', action='store_true', 
                        help='Show detailed encoding information')
     
     return parser.parse_args()

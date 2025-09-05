@@ -24,8 +24,7 @@ sys.path.append('..')
 from common.smpp_common import (
     load_env_file, get_smsc_servers, get_connection_config, get_smpp_params,
     test_ssl_connection, print_connection_info, 
-    print_using_params, validate_required_params, create_test_message, 
-    validate_e164_address, decode_sms_message
+    print_using_params, create_test_message, decode_sms_message
 )
 
 # Load receiver-specific environment variables
@@ -34,7 +33,17 @@ load_env_file('.env.receiver')
 # Configuration from environment
 SMSC_SERVERS = get_smsc_servers()
 CONNECTION_CONFIG = get_connection_config()
-SMPP_PARAMS = get_smpp_params()
+
+# Get SMPP parameters with error handling
+try:
+    SMPP_PARAMS = get_smpp_params()
+except ValueError as e:
+    print(f"{Fore.RED}❌ Configuration error: {e}{Style.RESET_ALL}")
+    sys.exit(1)
+except Exception as e:
+    print(f"{Fore.RED}❌ Unexpected error while reading configuration: {e}{Style.RESET_ALL}")
+    sys.exit(1)
+
 
 # MO-specific configuration
 RECEIVER_TIMEOUT = 30  # Timeout in seconds
@@ -51,7 +60,6 @@ debug_mode = False
 def parse_arguments():
     parser = argparse.ArgumentParser(description='SMPP Receiver - Receive MO SMS and test end-to-end MO functionality')
     parser.add_argument('-s', '--ssl', action='store_true', help='Use SSL/TLS connection')
-    parser.add_argument('-i', '--interactive', action='store_true', help='Interactive mode - prompt for username, password, and destination')
     parser.add_argument('-m', '--mode', choices=['send-receive', 'receive-only'], default='send-receive', help='Operation mode (default: send-receive)')
     parser.add_argument('-d', '--debug', action='store_true', help='Enable debug logging')
     return parser.parse_args()
@@ -62,10 +70,7 @@ def message_sent_handler(pdu):
     # Convert message ID to string for display
     message_id_str = pdu.message_id.decode('utf-8', errors='ignore') if isinstance(pdu.message_id, bytes) else str(pdu.message_id)
     
-    if debug_mode:
-        print(f"{Fore.GREEN}📤 Message sent - Sequence: {pdu.sequence}, Message ID: {message_id_str}{Style.RESET_ALL}")
-    else:
-        print(f"{Fore.GREEN}📤 Message sent - Message ID: {message_id_str}{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}📤 Message sent - Message ID: {message_id_str}{Style.RESET_ALL}")
     
     # Store sent message for correlation
     if hasattr(pdu, 'sequence'):
@@ -312,7 +317,6 @@ def main():
     args = parse_arguments()
     debug_mode = args.debug
     use_ssl = args.ssl
-    interactive = args.interactive
     mode = args.mode
 
     print(f"{Fore.CYAN}{Style.BRIGHT}SMPP Receiver{Style.RESET_ALL}")
@@ -339,40 +343,11 @@ def main():
     host = SMSC_SERVERS[server_choice]
     port = CONNECTION_CONFIG['ssl_port'] if use_ssl else CONNECTION_CONFIG['plain_port']
 
-    # Get user inputs based on interactive mode
-    if interactive:
-        username = input(f"Enter username [{SMPP_PARAMS['username']}]: ").strip() or SMPP_PARAMS['username']
-        
-        password = input("Enter password: ").strip()
-        if not password:
-            print("Password is required")
-            sys.exit(1)
-
-        if mode == 'send-receive':
-            dest_address = input(f"Enter destination address [{SMPP_PARAMS['dest_address']}]: ").strip()
-            if not dest_address:
-                dest_address = SMPP_PARAMS['dest_address']
-            
-            # Validate E.164 format
-            is_valid, error_msg = validate_e164_address(dest_address)
-            if not is_valid:
-                print(f"{Fore.RED}❌ Invalid destination address: {error_msg}{Style.RESET_ALL}")
-                sys.exit(1)
-            SMPP_PARAMS['dest_address'] = dest_address
-    else:
-        # Use values from environment
-        username = SMPP_PARAMS['username']
-        password = SMPP_PARAMS['password']
-        
-        validate_required_params(SMPP_PARAMS, ['username', 'password'])
-        
-        # Validate E.164 format for dest_address if present
-        if SMPP_PARAMS.get('dest_address'):
-            is_valid, error_msg = validate_e164_address(SMPP_PARAMS['dest_address'])
-            if not is_valid:
-                print(f"{Fore.RED}❌ Invalid destination address: {error_msg}{Style.RESET_ALL}")
-                sys.exit(1)
-        print_using_params(username, SMPP_PARAMS.get('dest_address', 'N/A'))
+    # Always use values from environment
+    username = SMPP_PARAMS['username']
+    password = SMPP_PARAMS['password']
+    
+    print_using_params(username, SMPP_PARAMS.get('dest_address', 'N/A'))
 
     # Create client
     try:

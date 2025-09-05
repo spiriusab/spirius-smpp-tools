@@ -17,6 +17,12 @@ import re
 # Initialize colorama for cross-platform colored output
 init(autoreset=True)
 
+# SMPP credential validation constants
+SMPP_USERNAME_MIN_LENGTH = 1
+SMPP_USERNAME_MAX_LENGTH = 16
+SMPP_PASSWORD_MIN_LENGTH = 1
+SMPP_PASSWORD_MAX_LENGTH = 9
+
 
 def find_project_root():
     """Find the project root directory by looking for pyproject.toml."""
@@ -82,31 +88,166 @@ def get_connection_config():
     }
 
 
+def validate_smpp_username(username):
+    """Validate SMPP username with length and format checks."""
+    if not username:
+        raise ValueError("SMPP username cannot be empty")
+    
+    # Length validation
+    if len(username) < SMPP_USERNAME_MIN_LENGTH:
+        raise ValueError(f"SMPP username must be at least {SMPP_USERNAME_MIN_LENGTH} character(s) long")
+    if len(username) > SMPP_USERNAME_MAX_LENGTH:
+        raise ValueError(f"SMPP username cannot exceed {SMPP_USERNAME_MAX_LENGTH} characters")
+    
+    # Format validation - printable ASCII characters only (no control characters)
+    if not re.match(r'^[\x21-\x7E]+$', username):
+        raise ValueError("SMPP username must contain only printable ASCII characters (no spaces or control characters)")
+
+
+def validate_smpp_password(password):
+    """Validate SMPP password with length and format checks."""
+    if not password:
+        raise ValueError("SMPP password cannot be empty")
+    
+    # Length validation
+    if len(password) < SMPP_PASSWORD_MIN_LENGTH:
+        raise ValueError(f"SMPP password must be at least {SMPP_PASSWORD_MIN_LENGTH} character(s) long")
+    if len(password) > SMPP_PASSWORD_MAX_LENGTH:
+        raise ValueError(f"SMPP password cannot exceed {SMPP_PASSWORD_MAX_LENGTH} characters")
+    
+    # Format validation - printable ASCII characters only (no control characters)
+    if not re.match(r'^[\x21-\x7E]+$', password):
+        raise ValueError("SMPP password must contain only printable ASCII characters (no spaces or control characters)")
+
+
 def get_smpp_params():
-    """Get SMPP parameters from environment."""
-    source_ton = os.getenv('SOURCE_TON')
-    source_npi = os.getenv('SOURCE_NPI')
+    """Get SMPP parameters from environment with validation and auto-derived TON/NPI."""
+    # Get values from environment
+    source_address = os.getenv('SOURCE_ADDRESS')
+    username = os.getenv('SMPP_USERNAME')
+    password = os.getenv('SMPP_PASSWORD')
+    dest_address = os.getenv('DEST_ADDRESS')
+    
+    # Validate required SMPP credentials
+    if not username:
+        raise ValueError("SMPP_USERNAME is required in environment")
+    if not password:
+        raise ValueError("SMPP_PASSWORD is required in environment")
+    
+    # Validate SMPP credentials format and length
+    validate_smpp_username(username)
+    validate_smpp_password(password)
+    
+    # Validate and auto-derive SOURCE_TON/NPI from address format
+    source_ton, source_npi = None, None
+    if source_address:
+        # Validate source address format
+        validate_source_address(source_address)
+        # Auto-derive TON/NPI values
+        source_ton, source_npi = get_source_ton_npi(source_address)
+    
+    # Validate destination address if present
+    if dest_address:
+        validate_e164_address(dest_address)
     
     return {
-        'source_ton': int(source_ton, 0) if source_ton else None,
-        'source_npi': int(source_npi, 0) if source_npi else None,
-        'source_address': os.getenv('SOURCE_ADDRESS'),
-        'username': os.getenv('SMPP_USERNAME'),
-        'password': os.getenv('SMPP_PASSWORD'),
-        'dest_address': os.getenv('DEST_ADDRESS')
+        'source_ton': source_ton,
+        'source_npi': source_npi,
+        'source_address': source_address,
+        'username': username,
+        'password': password,
+        'dest_address': dest_address
     }
 
 
 def validate_e164_address(address):
-    """Validate that address is in E.164 format without + prefix."""
+    """Validate that address is in E.164 format without + prefix. Throws ValueError if invalid."""
     if not address:
-        return False, "Address cannot be empty"
+        raise ValueError("Address cannot be empty")
     
     # E.164 format: digits only, 7-15 characters, no + prefix
     if not re.match(r'^[1-9]\d{6,14}$', address):
-        return False, "Address must be in E.164 format (7-15 digits, no + prefix, cannot start with 0)"
+        raise ValueError("Address must be in E.164 format (7-15 digits, no + prefix, cannot start with 0)")
+
+
+def is_valid_e164_address(address):
+    """Check if address is in valid E.164 format without + prefix."""
+    if not address:
+        return False
     
-    return True, "Valid E.164 format"
+    # E.164 format: digits only, 7-15 characters, no + prefix, cannot start with 0
+    return bool(re.match(r'^[1-9]\d{6,14}$', address))
+
+
+def is_valid_alphanumeric_address(address):
+    """
+    Check if a string contains only alphanumeric characters including Nordic/Scandinavian letters.
+    Allows: a-z, A-Z, 0-9, åäöÅÄÖ, æøåÆØÅ and other accented characters used in Nordic languages.
+    """
+    if not address:
+        return False
+    
+    # Check length (typically 1-11 characters for alphanumeric sender IDs)
+    if len(address) > 11:
+        return False
+    
+    # Define pattern for allowed characters
+    allowed_pattern = r'^[a-zA-Z0-9åäöÅÄÖæøÆØ ._&-]+$'
+    if not re.match(allowed_pattern, address):
+        return False
+    
+    # Disallow leading/trailing spaces
+    if address != address.strip():
+        return False
+    
+    return True
+
+
+def validate_source_address(address):
+    """
+    Validate source address - supports both E.164 international and alphanumeric formats.
+    Throws ValueError if invalid, returns silently if valid.
+    """
+    if not address:
+        raise ValueError("Source address cannot be empty")
+    
+    # Try E.164 format first
+    if is_valid_e164_address(address):
+        return
+    
+    # Try alphanumeric format
+    if is_valid_alphanumeric_address(address):
+        return
+    
+    # Neither format is valid
+    raise ValueError("Source address must be either E.164 international format (7-15 digits, no + prefix, cannot start with 0) or alphanumeric format (max 11 chars, letters/numbers/Nordic chars/space/._&-)")
+
+
+def get_source_address_format(address):
+    """Determine the format of a source address."""
+    if is_valid_e164_address(address):
+        return "e164"
+    elif is_valid_alphanumeric_address(address):
+        return "alphanumeric"
+    else:
+        raise ValueError("Invalid source address format")
+
+
+def get_source_ton_npi(address):
+    """
+    Auto-derive SOURCE_TON and SOURCE_NPI values based on address format.
+    Returns (ton, npi) tuple.
+    """
+    validate_source_address(address)  # Throws if invalid
+    
+    format_type = get_source_address_format(address)
+    
+    if format_type == "e164":
+        return 0x01, 0x01  # International, ISDN/E.164
+    elif format_type == "alphanumeric":
+        return 0x05, 0x00  # Alphanumeric, Unknown numbering plan
+    else:
+        raise ValueError(f"Unknown address format: {format_type}")
 
 
 def test_ssl_connection(host, port):
