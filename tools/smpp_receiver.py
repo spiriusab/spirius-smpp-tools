@@ -22,9 +22,10 @@ from colorama import Fore, Style
 # Import common SMPP functionality
 sys.path.append('..')
 from common.smpp_common import (
-    load_env_file, get_smsc_servers, get_connection_config, get_receiver_params,
-    test_ssl_connection, validate_required_params, print_connection_info,
-    print_using_params, create_test_message, decode_sms_message
+    load_env_file, get_smsc_servers, get_connection_config, get_smpp_params,
+    test_ssl_connection, print_connection_info, 
+    print_using_params, validate_required_params, create_test_message, 
+    validate_e164_address, decode_sms_message
 )
 
 # Load receiver-specific environment variables
@@ -33,7 +34,7 @@ load_env_file('.env.receiver')
 # Configuration from environment
 SMSC_SERVERS = get_smsc_servers()
 CONNECTION_CONFIG = get_connection_config()
-SMPP_PARAMS = get_receiver_params()
+SMPP_PARAMS = get_smpp_params()
 
 # MO-specific configuration
 RECEIVER_TIMEOUT = 30  # Timeout in seconds
@@ -295,10 +296,10 @@ def send_test_message(client, server_choice, username, use_ssl, smpp_params):
     pdu = client.send_message(
         source_addr_ton=smpp_params['source_ton'],
         source_addr_npi=smpp_params['source_npi'],
-        source_addr=smpp_params['originating_phone_number'],
-        dest_addr_ton=smpp_params['dest_ton'],
-        dest_addr_npi=smpp_params['dest_npi'],
-        destination_addr=smpp_params['receiving_phone_number'],
+        source_addr=smpp_params['source_address'],
+        dest_addr_ton=0x01,  # International E.164
+        dest_addr_npi=0x01,  # ISDN numbering plan,
+        destination_addr=smpp_params['dest_address'],
         short_message=smpplib.gsm.gsm_encode(message),
         data_coding=0x00,  # GSM 7-bit encoding
         registered_delivery=True
@@ -348,17 +349,30 @@ def main():
             sys.exit(1)
 
         if mode == 'send-receive':
-            receiving_phone_number = input(f"Enter destination address [{SMPP_PARAMS['receiving_phone_number']}]: ").strip()
-            if not receiving_phone_number:
-                receiving_phone_number = SMPP_PARAMS['receiving_phone_number']
-            SMPP_PARAMS['receiving_phone_number'] = receiving_phone_number
+            dest_address = input(f"Enter destination address [{SMPP_PARAMS['dest_address']}]: ").strip()
+            if not dest_address:
+                dest_address = SMPP_PARAMS['dest_address']
+            
+            # Validate E.164 format
+            is_valid, error_msg = validate_e164_address(dest_address)
+            if not is_valid:
+                print(f"{Fore.RED}❌ Invalid destination address: {error_msg}{Style.RESET_ALL}")
+                sys.exit(1)
+            SMPP_PARAMS['dest_address'] = dest_address
     else:
         # Use values from environment
         username = SMPP_PARAMS['username']
         password = SMPP_PARAMS['password']
         
         validate_required_params(SMPP_PARAMS, ['username', 'password'])
-        print_using_params(username, SMPP_PARAMS.get('receiving_phone_number', 'N/A'))
+        
+        # Validate E.164 format for dest_address if present
+        if SMPP_PARAMS.get('dest_address'):
+            is_valid, error_msg = validate_e164_address(SMPP_PARAMS['dest_address'])
+            if not is_valid:
+                print(f"{Fore.RED}❌ Invalid destination address: {error_msg}{Style.RESET_ALL}")
+                sys.exit(1)
+        print_using_params(username, SMPP_PARAMS.get('dest_address', 'N/A'))
 
     # Create client
     try:

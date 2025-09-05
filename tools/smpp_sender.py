@@ -22,8 +22,8 @@ from colorama import Fore, Style
 sys.path.append('..')
 from common.smpp_common import (
     load_env_file, get_smsc_servers, get_connection_config, get_smpp_params,
-    test_ssl_connection, validate_required_params, print_connection_info,
-    print_using_params, create_test_message
+    test_ssl_connection, print_connection_info, print_using_params, 
+    validate_required_params, validate_e164_address, create_test_message
 )
 
 # Load sender-specific environment variables
@@ -122,8 +122,8 @@ def main():
     source_ton = SMPP_PARAMS['source_ton']
     source_npi = SMPP_PARAMS['source_npi']
     source_addr = SMPP_PARAMS['source_address']
-    dest_ton = SMPP_PARAMS['dest_ton']
-    dest_npi = SMPP_PARAMS['dest_npi']
+    dest_ton = 0x01  # International E.164
+    dest_npi = 0x01  # ISDN numbering plan
 
     # Get user inputs based on interactive mode
     if interactive:
@@ -137,6 +137,12 @@ def main():
         dest_addr = input(f"Enter destination address [{SMPP_PARAMS['dest_address']}]: ").strip()
         if not dest_addr:
             dest_addr = SMPP_PARAMS['dest_address']
+        
+        # Validate E.164 format
+        is_valid, error_msg = validate_e164_address(dest_addr)
+        if not is_valid:
+            print(f"{Fore.RED}❌ Invalid destination address: {error_msg}{Style.RESET_ALL}")
+            sys.exit(1)
     else:
         # Use values from environment
         username = SMPP_PARAMS['username']
@@ -144,6 +150,12 @@ def main():
         dest_addr = SMPP_PARAMS['dest_address']
         
         validate_required_params(SMPP_PARAMS, ['username', 'password', 'dest_address'])
+        
+        # Validate E.164 format
+        is_valid, error_msg = validate_e164_address(dest_addr)
+        if not is_valid:
+            print(f"{Fore.RED}❌ Invalid destination address: {error_msg}{Style.RESET_ALL}")
+            sys.exit(1)
         print_using_params(username, dest_addr)
 
     message = custom_text or create_test_message(server_choice, username, use_ssl)

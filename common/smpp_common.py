@@ -6,12 +6,13 @@ Common SMPP functionality shared between sender and receiver tools.
 """
 
 import os
-import socket
 import ssl
+import socket
 import sys
 from dotenv import load_dotenv
 from colorama import Fore, Style, init
 import smpplib.gsm
+import re
 
 # Initialize colorama for cross-platform colored output
 init(autoreset=True)
@@ -85,38 +86,27 @@ def get_smpp_params():
     """Get SMPP parameters from environment."""
     source_ton = os.getenv('SOURCE_TON')
     source_npi = os.getenv('SOURCE_NPI')
-    dest_ton = os.getenv('DEST_TON')
-    dest_npi = os.getenv('DEST_NPI')
     
     return {
         'source_ton': int(source_ton, 0) if source_ton else None,
         'source_npi': int(source_npi, 0) if source_npi else None,
         'source_address': os.getenv('SOURCE_ADDRESS'),
-        'dest_ton': int(dest_ton, 0) if dest_ton else None,
-        'dest_npi': int(dest_npi, 0) if dest_npi else None,
         'username': os.getenv('SMPP_USERNAME'),
         'password': os.getenv('SMPP_PASSWORD'),
         'dest_address': os.getenv('DEST_ADDRESS')
     }
 
 
-def get_receiver_params():
-    """Get SMPP parameters for receiver (MO SMS) from environment."""
-    source_ton = os.getenv('SOURCE_TON')
-    source_npi = os.getenv('SOURCE_NPI')
-    dest_ton = os.getenv('DEST_TON')
-    dest_npi = os.getenv('DEST_NPI')
+def validate_e164_address(address):
+    """Validate that address is in E.164 format without + prefix."""
+    if not address:
+        return False, "Address cannot be empty"
     
-    return {
-        'source_ton': int(source_ton, 0) if source_ton else None,
-        'source_npi': int(source_npi, 0) if source_npi else None,
-        'originating_phone_number': os.getenv('ORIGINATING_PHONE_NUMBER'),  # MO: phone sending SMS
-        'dest_ton': int(dest_ton, 0) if dest_ton else None,
-        'dest_npi': int(dest_npi, 0) if dest_npi else None,
-        'username': os.getenv('SMPP_USERNAME'),
-        'password': os.getenv('SMPP_PASSWORD'),
-        'receiving_phone_number': os.getenv('RECEIVING_PHONE_NUMBER')  # MO: virtual number receiving SMS
-    }
+    # E.164 format: digits only, 7-15 characters, no + prefix
+    if not re.match(r'^[1-9]\d{6,14}$', address):
+        return False, "Address must be in E.164 format (7-15 digits, no + prefix, cannot start with 0)"
+    
+    return True, "Valid E.164 format"
 
 
 def test_ssl_connection(host, port):
