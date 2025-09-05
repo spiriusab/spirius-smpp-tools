@@ -40,7 +40,7 @@ This project uses [Poetry](https://python-poetry.org/) for dependency management
 
 ## smpp_sender
 
-A command-line tool for sending SMS messages using the SMPP protocol. Supports both plain TCP and SSL/TLS connections with interactive and non-interactive modes.
+A command-line tool for sending SMS messages using the SMPP protocol. Supports both plain TCP and SSL/TLS connections.
 
 ### Configuration
 
@@ -63,7 +63,7 @@ The tool uses environment variables for configuration.
 
 ## smpp_receiver
 
-A command-line tool for receiving SMS messages using the SMPP protocol. Supports both plain TCP and SSL/TLS connections with interactive and non-interactive modes. Has a send-receive mode to test end-to-end MO SMS functionality.
+A command-line tool for receiving SMS messages using the SMPP protocol. Supports both plain TCP and SSL/TLS connections. Has a send-receive mode to test end-to-end MO SMS functionality.
 
 ### Configuration
 
