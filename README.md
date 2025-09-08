@@ -2,7 +2,11 @@
 
 A collection of tools for testing the SMPP (Short Message Peer-to-Peer) protocol towards Spirius SMSCs.
 
-This project is provided by Spirius to showcase the SMPP protocol integration as a means to get started and to help with integration testing. It is not intended for production use. 
+This project is provided by Spirius to showcase the SMPP protocol integration as a means to get started and to help with integration testing. It is not intended for production use.
+
+## Documentation
+
+- [SMPP Traffic Flows](docs/smpp-traffic-flows.md) - Detailed explanation of MT and MO traffic flows with visual diagrams 
 
 ## Tools included
 
