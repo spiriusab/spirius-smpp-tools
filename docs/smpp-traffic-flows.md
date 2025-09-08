@@ -6,46 +6,48 @@ This document describes the Short Message Peer-to-Peer (SMPP) protocol traffic f
 
 SMPP is a protocol used by SMS service providers to exchange SMS messages with Short Message Service Centers (SMSCs). The Spirius platform acts as an SMSC, facilitating message delivery between SMPP clients and mobile network operators.
 
-## Traffic Flow Diagram
+## Traffic Flow Diagrams
+
+### MT Traffic Flow (Mobile Terminated)
 
 ```mermaid
-graph TB
-    %% MT Traffic Flow (Top Section)
-    subgraph MT["MT Traffic Flow (Mobile Terminated)"]
-        direction LR
-        Client1[SMPP Client] -->|submit_sm| SMSC1[Spirius SMSC]
-        SMSC1 -->|Forward Message| Operator1[Partner Operator]
-        Operator1 -->|Deliver| Mobile1[Mobile Terminal]
-        
-        %% Delivery Reports (MT)
-        Mobile1 -.->|Delivery Status| Operator1
-        Operator1 -.->|Delivery Report| SMSC1
-        SMSC1 -.->|deliver_sm/DLR| Client1
-    end
+sequenceDiagram
+    participant Client as SMPP Client
+    participant SMSC as Spirius SMSC
+    participant Operator as Partner Operator
+    participant Mobile as Mobile Terminal
     
-    %% MO Traffic Flow (Bottom Section)
-    subgraph MO["MO Traffic Flow (Mobile Originated)"]
-        direction LR
-        Mobile2[Mobile Terminal] -->|Send SMS| Operator2[Partner Operator]
-        Operator2 -->|Forward Message| SMSC2[Spirius SMSC]
-        SMSC2 -->|deliver_sm| Client2[SMPP Client]
-        
-        %% Acknowledgments (MO)
-        Client2 -.->|deliver_sm_resp| SMSC2
-        SMSC2 -.->|Acknowledgment| Operator2
-        Operator2 -.->|Confirmation| Mobile2
-    end
+    Client->>SMSC: submit_sm (SMS message)
+    SMSC->>Client: submit_sm_resp (Message ID)
+    SMSC->>Operator: Forward message
+    Operator->>Mobile: Deliver SMS
     
-    %% Styling
-    classDef client fill:#e1f5fe,stroke:#01579b,stroke-width:2px
-    classDef smsc fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
-    classDef operator fill:#e8f5e8,stroke:#1b5e20,stroke-width:2px
-    classDef mobile fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    Note over Mobile: User receives SMS
     
-    class Client1,Client2 client
-    class SMSC1,SMSC2 smsc
-    class Operator1,Operator2 operator
-    class Mobile1,Mobile2 mobile
+    Mobile-->>Operator: Delivery status
+    Operator-->>SMSC: Delivery report
+    SMSC-->>Client: deliver_sm (DLR)
+    Client-->>SMSC: deliver_sm_resp
+```
+
+### MO Traffic Flow (Mobile Originated)
+
+```mermaid
+sequenceDiagram
+    participant Client as SMPP Client
+    participant SMSC as Spirius SMSC
+    participant Operator as Partner Operator
+    participant Mobile as Mobile Terminal
+    
+    Mobile->>Operator: Send SMS
+    Operator->>SMSC: Forward MO message
+    SMSC->>Client: deliver_sm (MO message)
+    Client->>SMSC: deliver_sm_resp
+    
+    Note over Client: Process MO message
+    
+    SMSC-->>Operator: Acknowledgment
+    Operator-->>Mobile: Confirmation
 ```
 
 ## MT Traffic Flow (Mobile Terminated)
