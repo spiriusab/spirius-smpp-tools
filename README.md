@@ -17,7 +17,7 @@ This project is provided by Spirius to showcase the SMPP protocol integration as
 
 ## Prerequisites
 
-- Python 3.12 or higher
+- Python 3.15 or higher
 - Poetry 1.8.0 or higher
 - Credentials from Spirius, contact your Spirius account manager for access
 
