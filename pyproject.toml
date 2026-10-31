@@ -6,7 +6,7 @@ authors = [
     {name = "János Tóth-Égetö",email = "janos.toth-egeto@spirius.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.15"
 dependencies = [
     "bitstring (>=4.3.0,<5.0.0)",
     "smpplib (>=2.2.0,<3.0.0)",
